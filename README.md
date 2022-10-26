@@ -17,18 +17,6 @@ Server side of a social network "Talkee" made by Nodejs, express, mySQL and sequ
 ## :rocket: Backend Installation
 Install `nodejs`, `npm` and `XAMPP` on your local machine.
 Start `XAMPP` and create your data base named `talkfree`.
-In the `backend` folder, add the following configuration to `config.json` in `config` folder.
-```
-{
-    "development": {
-        "username": "root",
-        "password": "",
-        "database": "talkfree",
-        "host": "localhost",
-        "port": "3306",
-        "dialect": "mysql"
-    },
-}
 
 ```
 Go to backend folder
