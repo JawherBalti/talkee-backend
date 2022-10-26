@@ -2,7 +2,7 @@
 
 Server side of a social network "Talkee" made by Nodejs, express, mySQL and sequelize
 
-## :dart: Objectifs attendus
+## :dart: Objectives
 
 - Create user accounts
 - Authenticate and authorize users
@@ -18,6 +18,7 @@ Server side of a social network "Talkee" made by Nodejs, express, mySQL and sequ
 Install `nodejs`, `npm` and `XAMPP` on your local machine.
 Start `XAMPP` and create your data base named `talkfree`.
 In the `backend` folder, add the following configuration to `config.json` in `config` folder.
+```
 {
     "development": {
         "username": "root",
