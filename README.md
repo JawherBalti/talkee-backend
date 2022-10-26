@@ -29,4 +29,4 @@ Install project dependencies
 ```
 Start server
 ```
-> nodemon serve
+> npm start
