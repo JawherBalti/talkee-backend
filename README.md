@@ -21,7 +21,7 @@ Start `XAMPP` and create your data base named `talkfree`.
 ```
 Go to backend folder
 ```
-> cd backend
+> cd talkee-backend
 ```
 Install project dependencies
 ```
