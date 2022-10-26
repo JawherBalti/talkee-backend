@@ -1,8 +1,8 @@
-# Getting Started with Create React App
+# Talkee Backend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Server side of a social network "Talkee"
 
-## Available Scripts
+## 🎯 Functionalities
 
 In the project directory, you can run:
 
