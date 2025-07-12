@@ -10,6 +10,7 @@
     "license": "MIT",
     "dependencies": {
         "bcrypt": "^5.0.1",
+        "cloudinary": "^2.7.0",
         "cookie-parser": "^1.4.6",
         "cookies": "^0.8.0",
         "cors": "^2.8.5",
@@ -31,6 +32,7 @@
         "socket.io": "^4.5.2"
     },
     "devDependencies": {
-        "eslint": "^7.32.0"
+        "eslint": "^7.32.0",
+        "nodemon": "^3.1.10"
     }
 }
