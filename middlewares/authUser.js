@@ -7,20 +7,41 @@ const Cookies = require('cookies');
 const User = db.User;
 
 // identifier le user et vérifier son token
-exports.checkUser = async (req, res, next) => {
+exports.checkUser = (req, res, next) => {
   try {
     const cookies = req.headers.cookie;
-    const token = cookies.split('=')[1];
-    if (!token) {
-      res.status(404).json({ message: 'No Token Found !' });
+    
+    // Check if cookies exist
+    if (!cookies) {
+      return res.status(401).json({ message: 'No cookies found' });
     }
-    jwt.verify(token, process.env.COOKIE_KEY, (err, user) => {
-      if (err) return res.status(400).json({ message: 'Invalid Token ! ' });
+
+    // Parse cookies to get snToken
+    const cookiesArray = cookies.split(';');
+    let snToken = null;
+
+    for (const cookie of cookiesArray) {
+      const [name, value] = cookie.trim().split('=');
+      if (name === 'snToken') {
+        snToken = value;
+        break;
+      }
+    }
+
+    if (!snToken) {
+      return res.status(401).json({ message: 'No authentication token found' });
+    }
+
+    jwt.verify(snToken, process.env.COOKIE_KEY, (err, user) => {
+      if (err) {
+        return res.status(403).json({ message: 'Invalid or expired token' });
+      }
       req.userId = user.userId;
       next();
     });
   } catch (error) {
-    res.status(401).json('An error occured !');
+    console.error('Authentication error:', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 };
 
