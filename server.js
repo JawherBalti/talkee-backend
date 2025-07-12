@@ -69,6 +69,7 @@ const addConversation = async (socketId, userId, convId) => {
 
 io.on('connection', (socket) => {
   console.log('connection', socket.id);
+  
   socket.on('addUser', (data) => {
     !connectedUsers.some((user) => user.userId === data.userId) &&
       addUser(data, socket.id);
@@ -79,6 +80,13 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     removeUser(socket.id);
     io.emit('getUsers', connectedUsers);
+  });
+
+  socket.on('markAsRead', ({ senderId, receiverId }) => {
+    const user = getUser(receiverId);
+    if (user) {
+      io.to(user.socketId).emit('messagesRead', { senderId });
+    }
   });
 
   socket.on('addConversation', ({ userId, convId }) => {
@@ -94,61 +102,110 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('sendMessage', (data) => {
-    const user = getUser(data.secondUser.receiverId);
-    console.log(data);
+  // Update your socket.io 'isTyping' handler
+  socket.on('isTyping', (data) => {
+    const user = getUser(data.receiverId); // Changed from userId to receiverId
     if (user) {
-      io.to(user.socketId).emit('getMessage', data);
+      io.to(user.socketId).emit('getIsTyping', {
+        senderId: data.senderId,
+        isTyping: data.isTyping
+      });
     }
-
-    socket.on('isTyping', (data) => {
-      const user = getUser(data.userId);
-      console.log(1);
-      if (user) io.to(user.socketId).emit('getIsTyping', data);
-    });
-
-    // if (
-    //   conversations.some(
-    //     (conv) => conv.convId === convId && conv.userId === receiverId
-    //   )
-    // ) {
-    //   const conversation = await db.Conversation.findByPk(convId);
-    //   const unreadMessage =
-    //     conversation.firstUserId === receiverId
-    //       ? 'unreadMessageFirstUser'
-    //       : 'unreadMessageSecondUser';
-    //   conversation.increment(unreadMessage);
-    // }
   });
 
-  // socket.on('followedUsers', (followedUsers) => {
-  //   console.log(followedUsers);
-  // });
-
-  // socket.on('onLogin', (user) => {
-  //   const updatedUser = {
-  //     ...user,
-  //     online: true,
-  //     socketId: socket.id,
-  //     messages: [],
-  //   };
-  //   if (user) {
-  //     const alreadyConnected = connectedUsers.find(
-  //       (user) => user.id === updatedUser.id
-  //     );
-  //     if (!alreadyConnected) connectedUsers.push(updatedUser);
-  //   }
-  //   console.log('users' + connectedUsers);
-  // });
-
-  // socket.emit('getAllConnectedUsers', connectedUsers);
-  // socket.on('onLogout', () => {
-  //   connectedUsers = connectedUsers.filter(
-  //     (user) => user.socketId !== socket.id
-  //   );
-  //   return connectedUsers;
-  // });
+  socket.on('sendMessage', (data) => {
+    const user = getUser(data.secondUser.receiverId);
+    if (user) {
+      io.to(user.socketId).emit('getMessage', {
+        ...data,
+        isUnread: true // Add flag to indicate unread message
+      });
+    }
+  });
 });
+
+// io.on('connection', (socket) => {
+//   console.log('connection', socket.id);
+//   socket.on('addUser', (data) => {
+//     !connectedUsers.some((user) => user.userId === data.userId) &&
+//       addUser(data, socket.id);
+//     io.emit('getUsers', connectedUsers);
+//     console.log(connectedUsers);
+//   });
+
+//   socket.on('disconnect', () => {
+//     removeUser(socket.id);
+//     io.emit('getUsers', connectedUsers);
+//   });
+
+//   socket.on('addConversation', ({ userId, convId }) => {
+//     addConversation(socket.id, userId, convId);
+//   });
+
+//   socket.on('newConversation', ({ otherUserId, allConversations }) => {
+//     const user = getUser(otherUserId);
+//     if (user) {
+//       io.to(user.socketId).emit('getConversation', {
+//         allConversations,
+//       });
+//     }
+//   });
+
+//   socket.on('sendMessage', (data) => {
+//     const user = getUser(data.secondUser.receiverId);
+//     console.log(data);
+//     if (user) {
+//       io.to(user.socketId).emit('getMessage', data);
+//     }
+
+//     socket.on('isTyping', (data) => {
+//       const user = getUser(data.userId);
+//       console.log(1);
+//       if (user) io.to(user.socketId).emit('getIsTyping', data);
+//     });
+
+//     // if (
+//     //   conversations.some(
+//     //     (conv) => conv.convId === convId && conv.userId === receiverId
+//     //   )
+//     // ) {
+//     //   const conversation = await db.Conversation.findByPk(convId);
+//     //   const unreadMessage =
+//     //     conversation.firstUserId === receiverId
+//     //       ? 'unreadMessageFirstUser'
+//     //       : 'unreadMessageSecondUser';
+//     //   conversation.increment(unreadMessage);
+//     // }
+//   });
+
+//   // socket.on('followedUsers', (followedUsers) => {
+//   //   console.log(followedUsers);
+//   // });
+
+//   // socket.on('onLogin', (user) => {
+//   //   const updatedUser = {
+//   //     ...user,
+//   //     online: true,
+//   //     socketId: socket.id,
+//   //     messages: [],
+//   //   };
+//   //   if (user) {
+//   //     const alreadyConnected = connectedUsers.find(
+//   //       (user) => user.id === updatedUser.id
+//   //     );
+//   //     if (!alreadyConnected) connectedUsers.push(updatedUser);
+//   //   }
+//   //   console.log('users' + connectedUsers);
+//   // });
+
+//   // socket.emit('getAllConnectedUsers', connectedUsers);
+//   // socket.on('onLogout', () => {
+//   //   connectedUsers = connectedUsers.filter(
+//   //     (user) => user.socketId !== socket.id
+//   //   );
+//   //   return connectedUsers;
+//   // });
+// });
 
 server.on('error', errorHandler);
 server.on('listening', () => {
