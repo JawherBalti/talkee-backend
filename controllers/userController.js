@@ -5,6 +5,7 @@ const { Op } = require('sequelize');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 
 /*  *********************************************************** */
 //  create a user
@@ -38,8 +39,8 @@ exports.signup = async (req, res) => {
         email: email,
         password: hashPass,
         role: isAdmin,
-        photoUrl: req.file ? req.file.filename : 'defaultAvatar.jpg',
-        bannerUrl: req.file ? req.file.filename : 'defaultBanner.jpg',
+        photoUrl: 'https://res.cloudinary.com/dv1lhvgjr/image/upload/w_1000,c_fill,ar_1:1,g_auto,r_max,bo_5px_solid_red,b_rgb:262c35/v1677681604/vxstqdsuya3bhwgtfspg.png',
+        bannerUrl: 'https://res.cloudinary.com/dv1lhvgjr/image/upload/v1733000774/1728214017320_knbwju.jpg',
         biography: null,
         skills: null,
         isBlocked: false,
@@ -216,84 +217,191 @@ exports.getOneUser = async (req, res) => {
 // update user
 /*  ****************************************************** */
 
+// exports.updateUser = async (req, res) => {
+//   const id = req.params.id;
+//   const user = await db.User.findByPk(id);
+//   const oldAvatar = user.photoUrl;
+//   const oldBanner = user.banner;
+
+//   let userObject = req.file
+//     ? {
+//         ...req.body,
+//         photoUrl: req.file.filename,
+//       }
+//     : {
+//         ...req.body,
+//       };
+//   try {
+//     const user = await db.User.update(
+//       {
+//         ...userObject,
+//         id: req.params.id,
+//       },
+//       {
+//         where: {
+//           id: req.params.id,
+//         },
+//       }
+//     );
+
+//     if (req.file && oldAvatar !== 'defaultAvatar.jpg') {
+//       fs.unlinkSync(`images/${oldAvatar}`, (err) => {
+//         if (err) throw err;
+//       });
+//     }
+
+//     return res.status(200).json({
+//       message: 'User updated successfully !',
+//       user,
+//     });
+//   } catch (err) {
+//     res.status(400).json({ message: 'Could not update user !' });
+//   }
+// };
+
+
 exports.updateUser = async (req, res) => {
-  const id = req.params.id;
-  const user = await db.User.findByPk(id);
-  const oldAvatar = user.photoUrl;
-  const oldBanner = user.banner;
-
-  let userObject = req.file
-    ? {
-        ...req.body,
-        photoUrl: req.file.filename,
-      }
-    : {
-        ...req.body,
-      };
   try {
-    const user = await db.User.update(
-      {
-        ...userObject,
-        id: req.params.id,
-      },
-      {
-        where: {
-          id: req.params.id,
-        },
-      }
-    );
-
-    if (req.file && oldAvatar !== 'defaultAvatar.jpg') {
-      fs.unlinkSync(`images/${oldAvatar}`, (err) => {
-        if (err) throw err;
-      });
+    const id = req.params.id;
+    const user = await db.User.findByPk(id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
     }
 
+    const { photoUrl, oldPhotoUrl, ...otherFields } = req.body;
+
+    // If new avatar was provided and old avatar exists in Cloudinary
+    if (photoUrl && oldPhotoUrl && oldPhotoUrl.includes('cloudinary')) {
+      try {
+        const urlParts = oldPhotoUrl.split('/');
+        const publicId = urlParts[urlParts.length - 1].split('.')[0];
+        
+        // Only delete if the new avatar is different
+        if (photoUrl !== oldPhotoUrl) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cloudinaryErr) {
+        console.error('Error deleting old avatar:', cloudinaryErr);
+      }
+    }
+
+    // Prepare update data
+    const updateData = { ...otherFields };
+    if (photoUrl) updateData.photoUrl = photoUrl;
+
+    // Update user in database
+    const [updatedRows] = await db.User.update(updateData, {
+      where: { id },
+    });
+
+    if (updatedRows === 0) {
+      return res.status(400).json({ message: 'No changes made!' });
+    }
+
+    // Get updated user data
+    const updatedUser = await db.User.findByPk(id, {
+      attributes: { exclude: ['password'] }
+    });
+
     return res.status(200).json({
-      message: 'User updated successfully !',
-      user,
+      message: 'User updated successfully!',
+      user: updatedUser
     });
   } catch (err) {
-    res.status(400).json({ message: 'Could not update user !' });
+    console.error('Error updating user:', err);
+    return res.status(500).json({ message: 'Internal server error!' });
   }
 };
 
-exports.updateBanner = async (req, res) => {
-  const id = req.params.id;
-  const user = await db.User.findByPk(id);
-  const oldBanner = user.bannerUrl;
+// exports.updateBanner = async (req, res) => {
+//   const id = req.params.id;
+//   const user = await db.User.findByPk(id);
+//   const oldBanner = user.bannerUrl;
 
-  let userObject = req.file
-    ? {
-        ...req.body,
-        bannerUrl: req.file.filename,
-      }
-    : {
-        ...req.body,
-      };
+//   let userObject = req.file
+//     ? {
+//         ...req.body,
+//         bannerUrl: req.file.filename,
+//       }
+//     : {
+//         ...req.body,
+//       };
+//   try {
+//     const user = await db.User.update(
+//       {
+//         ...userObject,
+//         id: req.params.id,
+//       },
+//       {
+//         where: {
+//           id: req.params.id,
+//         },
+//       }
+//     );
+
+//     if (req.file && oldBanner !== 'defaultBanner.jpg') {
+//       fs.unlinkSync(`images/${oldBanner}`, (err) => {
+//         if (err) throw err;
+//       });
+//     }
+//     return res.status(200).json({
+//       message: 'User updated successfully !',
+//     });
+//   } catch (err) {
+//     res.status(400).json({ message: 'Could not update user !' });
+//   }
+// };
+
+
+exports.updateBanner = async (req, res) => {
   try {
-    const user = await db.User.update(
-      {
-        ...userObject,
-        id: req.params.id,
-      },
-      {
-        where: {
-          id: req.params.id,
-        },
+    const id = req.params.id;
+    const user = await db.User.findByPk(id);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found!' });
+    }
+
+    const { bannerUrl, oldBannerUrl } = req.body;
+
+    // If new banner was provided and old banner exists in Cloudinary
+    if (bannerUrl && oldBannerUrl && oldBannerUrl.includes('cloudinary')) {
+      try {
+        const urlParts = oldBannerUrl.split('/');
+        const publicId = urlParts[urlParts.length - 1].split('.')[0];
+        
+        // Only delete if the new banner is different
+        if (bannerUrl !== oldBannerUrl) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cloudinaryErr) {
+        console.error('Error deleting old banner:', cloudinaryErr);
       }
+    }
+
+    // Update user in database
+    const [updatedRows] = await db.User.update(
+      { bannerUrl },
+      { where: { id } }
     );
 
-    if (req.file && oldBanner !== 'defaultBanner.jpg') {
-      fs.unlinkSync(`images/${oldBanner}`, (err) => {
-        if (err) throw err;
-      });
+    if (updatedRows === 0) {
+      return res.status(400).json({ message: 'No changes made!' });
     }
+
+    // Get updated user data
+    const updatedUser = await db.User.findByPk(id, {
+      attributes: { exclude: ['password'] }
+    });
+
     return res.status(200).json({
-      message: 'User updated successfully !',
+      message: 'Banner updated successfully!',
+      user: updatedUser
     });
   } catch (err) {
-    res.status(400).json({ message: 'Could not update user !' });
+    console.error('Error updating banner:', err);
+    return res.status(500).json({ message: 'Internal server error!' });
   }
 };
 
