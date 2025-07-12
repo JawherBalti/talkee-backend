@@ -3,21 +3,30 @@
 const db = require('../models');
 const fs = require('fs');
 
+const cloudinary = require('cloudinary').v2;
+
+// Configure Cloudinary (add this at the top of your controller file)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
 /*  *********************************************************** */
 //  create a post
 /*  *********************************************************** */
 exports.createPost = async (req, res) => {
-  let postObject = req.file
+  let postObject = req.body.attachmentUrl
     ? {
-        ...req.body,
-        attachmentUrl: req.file.filename,
+        content: req.body.content,
+        attachmentUrl: req.body.attachmentUrl, // This is now the Cloudinary URL
       }
     : {
-        ...req.body,
+        content: req.body.content,
       };
+
   try {
     const post = await db.Post.create({ ...postObject, UserId: req.userId });
-
     return res.status(201).json({
       message: 'Post created successfully!',
     });
@@ -31,9 +40,16 @@ exports.createPost = async (req, res) => {
 /*  ****************************************************** */
 exports.getAllPosts = async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1; // Default to page 1
+    const limit = 1; // 1 post per request
+    const offset = (page - 1) * limit;
+
+    // Get paginated posts
     const posts = await db.Post.findAll({
       attributes: ['id', 'content', 'attachmentUrl', 'createdAt'],
       order: [['createdAt', 'DESC']],
+      limit: limit,
+      offset: offset,
       include: [
         {
           model: db.User,
@@ -56,9 +72,18 @@ exports.getAllPosts = async (req, res) => {
         },
       ],
     });
-    res.status(200).json(posts);
+
+    // Get total count for pagination
+    const totalPosts = await db.Post.count();
+
+    return res.status(200).json({
+      posts: posts,
+      currentPage: page,
+      totalPages: Math.ceil(totalPosts / limit),
+      hasMore: page < Math.ceil(totalPosts / limit)
+    });
   } catch (err) {
-    return res.status(500).json({ err: 'An error occured!' });
+    return res.status(500).json({ err: 'An error occurred!' });
   }
 };
 
@@ -68,81 +93,71 @@ exports.getAllPosts = async (req, res) => {
 
 exports.getFollowedPosts = async (req, res) => {
   const id = req.params.id;
+  const page = parseInt(req.query.page) || 1; // Default to page 1
+  const limit = 10; // 1 post per request
+  // How many posts to skip in each page
+  const offset = (page - 1) * limit;
   try {
+    // First get all followed user IDs (including self)
     const user = await db.User.findOne({
       where: { id },
+      include: [{
+        model: db.User,
+        as: 'following',
+        attributes: ['id'],
+        through: { attributes: [] }
+      }]
+    });
+
+    const followedUserIds = [
+      user.id,
+      ...user.following.map(follow => follow.id)
+    ];
+
+    // Then get paginated posts from all followed users
+    const posts = await db.Post.findAll({
+      where: {
+        UserId: { [db.Sequelize.Op.in]: followedUserIds }
+      },
       include: [
         {
-          model: db.Post,
+          model: db.User,
+          attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
+        },
+        {
+          model: db.Like,
+          attributes: ['UserId'],
+        },
+        {
+          model: db.Comment,
+          attributes: ['message', 'id', 'UserId', 'createdAt'],
+          order: [['createdAt', 'DESC']],
           include: [
             {
               model: db.User,
               attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
             },
-            {
-              model: db.Like,
-              attributes: ['UserId'],
-            },
-            {
-              model: db.Comment,
-              attributes: ['message', 'id', 'UserId', 'createdAt'],
-              order: [['createdAt', 'DESC']],
-              include: [
-                {
-                  model: db.User,
-                  attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
-                },
-              ],
-            },
-          ],
-        },
-        {
-          model: db.User,
-          as: 'following',
-          attributes: ['id', 'firstName', 'familyName', 'photoUrl'],
-          through: {
-            attributes: [],
-          },
-          include: [
-            {
-              model: db.Post,
-              include: [
-                {
-                  model: db.User,
-                  attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
-                },
-                {
-                  model: db.Like,
-                  attributes: ['UserId'],
-                },
-                {
-                  model: db.Comment,
-                  attributes: ['message', 'id', 'UserId', 'createdAt'],
-                  order: [['createdAt', 'DESC']],
-                  include: [
-                    {
-                      model: db.User,
-                      attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
-                    },
-                  ],
-                },
-              ],
-            },
           ],
         },
       ],
-    });
-    const followedPosts = [];
-    user.Posts.map((post) => {
-      followedPosts.push(post);
-    });
-    user.following.map((follow) => {
-      follow.dataValues.Posts.map((post) => followedPosts.push(post));
+      order: [['createdAt', 'DESC']],
+      limit: limit,
+      offset: offset,
     });
 
-    return res
-      .status(200)
-      .json(followedPosts.sort((a, b) => b.createdAt - a.createdAt));
+    // Get total count for pagination
+    const totalPosts = await db.Post.count({
+      where: {
+        UserId: { [db.Sequelize.Op.in]: followedUserIds }
+      }
+    });
+
+    return res.status(200).json({
+      posts: posts,
+      currentPage: page,
+      totalPages: Math.ceil(totalPosts / limit),
+      hasMore: page < Math.ceil(totalPosts / limit)
+    });
   } catch (err) {
     return res.status(500).json({ err: 'An error occured!' });
   }
@@ -188,15 +203,21 @@ exports.getOnePost = async (req, res) => {
 /*  ****************************************************** */
 
 exports.getUserPosts = async (req, res) => {
+  const userId = req.params.id;
+  const page = parseInt(req.query.page) || 1; // Default to page 1
+  const limit = 5; // 1 post per request
+  const offset = (page - 1) * limit;
   try {
-    const post = await db.Post.findAll({
-      where: { userId: req.params.id },
+      // Get paginated posts
+      const posts = await db.Post.findAll({
+      where: { userId },
       order: [['createdAt', 'DESC']],
+      limit: limit,
+      offset: offset,
       include: [
         {
           model: db.User,
           attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
-          order: [['createdAt', 'DESC']],
         },
         {
           model: db.Like,
@@ -215,9 +236,20 @@ exports.getUserPosts = async (req, res) => {
         },
       ],
     });
-    res.status(200).json(post);
+
+    // Get total count for pagination
+    const totalPosts = await db.Post.count({
+      where: { userId }
+    });
+
+    return res.status(200).json({
+      posts: posts,
+      currentPage: page,
+      totalPages: Math.ceil(totalPosts / limit),
+      hasMore: page < Math.ceil(totalPosts / limit)
+    });
   } catch (err) {
-    return res.status(500).json({ message: 'An error occured!' });
+    return res.status(500).json({ message: 'An error occurred!' });
   }
 };
 
@@ -226,41 +258,63 @@ exports.getUserPosts = async (req, res) => {
 /*  ****************************************************** */
 
 exports.updatePost = async (req, res) => {
-  //get old picture
-  const id = req.params.id;
-  const post = await db.Post.findByPk(id);
-  const oldPicture = post.attachmentUrl;
-
-  let postObject = req.file
-    ? {
-        content: req.body.content,
-        attachmentUrl: req.file.filename,
-      }
-    : {
-        content: req.body.content,
-        attachmentUrl: req.body.attachmentUrl,
-      };
   try {
-    await db.Post.update(
-      {
-        ...postObject,
-        id: req.params.id,
-      },
-      {
-        where: {
-          id: req.params.id,
-        },
-      }
-    );
-
-    if (!postObject.attachmentUrl && oldPicture) {
-      fs.unlinkSync(`images/${oldPicture}`, (err) => {
-        if (err) throw err;
-      });
+    const id = req.params.id;
+    const post = await db.Post.findByPk(id);
+    
+    if (!post) {
+      return res.status(404).json({ message: 'Post not found!' });
     }
-    return res.status(200).json({ message: 'Post updated successfully !' });
+
+    const { content, attachmentUrl, oldAttachmentUrl } = req.body;
+
+    // Validate at least one field is being updated
+    if (!content && !attachmentUrl) {
+      return res.status(400).json({ message: 'No changes provided!' });
+    }
+
+    // If new image was provided and old image exists in Cloudinary
+    if (attachmentUrl && oldAttachmentUrl && oldAttachmentUrl.includes('cloudinary')) {
+      try {
+        // Extract public_id from the old Cloudinary URL
+        const urlParts = oldAttachmentUrl.split('/');
+        const filename = urlParts[urlParts.length - 1];
+        const publicId = filename.split('.')[0];
+        
+        // Only delete if the new image is different from the old one
+        if (attachmentUrl !== oldAttachmentUrl) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (cloudinaryErr) {
+        console.error('Error deleting old image from Cloudinary:', cloudinaryErr);
+        // Continue with update even if old image deletion fails
+      }
+    }
+
+    // Prepare update object
+    const updateData = {};
+    if (content !== undefined) updateData.content = content;
+    if (attachmentUrl !== undefined) updateData.attachmentUrl = attachmentUrl;
+
+    // Update the post in database
+    const [updatedRows] = await db.Post.update(updateData, {
+      where: { id },
+    });
+
+    if (updatedRows === 0) {
+      return res.status(404).json({ message: 'Post not found or no changes made!' });
+    }
+
+    // Get the updated post to return in response
+    const updatedPost = await db.Post.findByPk(id);
+
+    return res.status(200).json({ 
+      message: 'Post updated successfully!',
+      post: updatedPost 
+    });
   } catch (err) {
-    res.status(400).json({ message: 'Could not update post !' });
+    console.error('Error updating post:', err);
+    return res.status(500).json({ message: 'Internal server error while updating post!' });
   }
 };
 
@@ -269,23 +323,33 @@ exports.updatePost = async (req, res) => {
 /********************************************************/
 exports.deletePost = async (req, res) => {
   try {
-    const post = await db.Post.findByPk(req.params.id);
+    // First get the post to check if it has an image
+    const post = await db.Post.findOne({ where: { id: req.params.id } });
+    
     if (!post) {
-      console.log(2);
-      res.status(401).json({ err: 'Could not find post !' });
-    } else {
-      if (post.attachmentUrl) {
-        fs.unlinkSync(`images/${post.attachmentUrl}`, (err) => {
-          if (err) throw err;
-        });
-      }
-      await post.destroy();
-
-      res
-        .status(200)
-        .json({ message: `Post ${req.params.id} deleted successfully` });
+      return res.status(404).json({ message: 'Post not found' });
     }
+
+    // If post has an image, delete it from Cloudinary
+    if (post.attachmentUrl) {
+      // Extract public_id from the URL (the part after the last / and before the file extension)
+      const publicId = post.attachmentUrl.split('/').pop().split('.')[0];
+      
+      try {
+        await cloudinary.uploader.destroy(publicId);
+      } catch (cloudinaryErr) {
+        console.error('Error deleting image from Cloudinary:', cloudinaryErr);
+        // You might choose to continue with post deletion even if image deletion fails
+      }
+    }
+
+    // Delete the post from database
+    await db.Post.destroy({ where: { id: req.params.id } });
+    
+    return res.status(200).json({
+      message: 'Post deleted successfully!',
+    });
   } catch (err) {
-    res.status(400).json({ err: 'Could not find post !' });
+    return res.status(400).json({ message: 'Could not delete post!' });
   }
 };
