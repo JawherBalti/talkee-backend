@@ -4,7 +4,6 @@ const sequelize = require('sequelize');
 const { Op } = require('sequelize');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
 const cloudinary = require('cloudinary').v2;
 
 /*  *********************************************************** */
@@ -18,11 +17,11 @@ exports.signup = async (req, res) => {
     });
 
     if (user) {
-      if (req.file) fs.unlinkSync(req.file.path);
       return res.status(400).send({
         message: 'Email already used !',
       });
     } else {
+
       const allUsers = await db.User.findAll({
         attributes: {
           include: [[sequelize.fn('COUNT', sequelize.col('id')), 'totalUsers']],
@@ -44,7 +43,9 @@ exports.signup = async (req, res) => {
         biography: null,
         skills: null,
         isBlocked: false,
+        isOnline: false,
       };
+      console.log(userObject)
       const createdUser = await db.User.create(userObject);
       return res.status(200).send({
         message: 'User created successfully. You can now login !',
@@ -80,6 +81,8 @@ exports.login = async (req, res) => {
           req.cookies['snToken'] = '';
         }
 
+        await user.update({ isOnline: true });
+
         res.cookie('snToken', token, {
           path: '/',
           maxAge: 1000 * 60 * 60 * 24, //24h
@@ -99,18 +102,56 @@ exports.login = async (req, res) => {
 /*  ****************************************************** */
 //  logout
 /*  ****************************************************** */
-exports.logout = (req, res) => {
-  const cookies = req.headers.cookie;
-  const prevToken = cookies.split('=')[1];
-  if (!prevToken) {
-    res.status(404).json({ message: 'No Token Found !' });
+
+exports.logout = async (req, res) => {
+  try {
+    const cookies = req.headers.cookie;
+    if (!cookies) {
+      return res.status(404).json({ message: 'No token found!' });
+    }
+
+    const prevToken = cookies.split('=')[1];
+    if (!prevToken) {
+      return res.status(404).json({ message: 'No token found!' });
+    }
+
+    // Verify token and get user info
+    jwt.verify(prevToken, process.env.COOKIE_KEY, async (err, decoded) => {
+      if (err) {
+        return res.status(400).json({ message: 'Invalid token!' });
+      }
+console.log(decoded)
+      try {
+        // Update online status before clearing cookie
+        await db.User.update(
+          { isOnline: false },
+          { where: { id: decoded.userId } }
+        );
+
+        res.clearCookie('snToken');
+        return res.status(200).json({ message: 'Logged out successfully!' });
+      } catch (updateErr) {
+        console.error('Logout update error:', updateErr);
+        return res.status(500).json({ message: 'Error updating online status' });
+      }
+    });
+  } catch (err) {
+    console.error('Logout error:', err);
+    res.status(500).json({ message: 'An error occurred while logging out!' });
   }
-  jwt.verify(prevToken, process.env.COOKIE_KEY, (err, user) => {
-    if (err) return res.status(400).json({ message: 'Invalid Token ! ' });
-    res.clearCookie('snToken');
-    return res.status(200).json({ message: 'Logged Out Successfully !' });
-  });
 };
+// exports.logout = (req, res) => {
+//   const cookies = req.headers.cookie;
+//   const prevToken = cookies.split('=')[1];
+//   if (!prevToken) {
+//     res.status(404).json({ message: 'No Token Found !' });
+//   }
+//   jwt.verify(prevToken, process.env.COOKIE_KEY, (err, user) => {
+//     if (err) return res.status(400).json({ message: 'Invalid Token ! ' });
+//     res.clearCookie('snToken');
+//     return res.status(200).json({ message: 'Logged Out Successfully !' });
+//   });
+// };
 
 /*  ****************************************************** */
 //  get all users
@@ -126,6 +167,7 @@ exports.getAllUsers = async (req, res) => {
         'photoUrl',
         'role',
         'isBlocked',
+        'isOnline',
         'createdAt',
       ],
       include: [
@@ -165,7 +207,7 @@ exports.getOneUser = async (req, res) => {
         {
           model: db.User,
           as: 'followers',
-          attributes: ['id', 'firstName', 'familyName', 'photoUrl'],
+          attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
           through: {
             attributes: [],
           },
@@ -174,7 +216,7 @@ exports.getOneUser = async (req, res) => {
         {
           model: db.User,
           as: 'following',
-          attributes: ['id', 'firstName', 'familyName', 'photoUrl'],
+          attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
           through: {
             attributes: [],
           },
