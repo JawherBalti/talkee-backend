@@ -40,6 +40,7 @@ module.exports = (sequelize, DataTypes) => {
       skills: { type: DataTypes.STRING, allowNull: true },
       role: { type: DataTypes.BOOLEAN, allowNull: false, default: false },
       isBlocked: { type: DataTypes.BOOLEAN, allowNull: false, default: false },
+      isOnline: {type: DataTypes.BOOLEAN, allowNull: false, default: false},
     },
     {
       sequelize,
