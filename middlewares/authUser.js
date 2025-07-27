@@ -13,7 +13,7 @@ exports.checkUser = (req, res, next) => {
     
     // Check if cookies exist
     if (!cookies) {
-      return res.status(401).json({ message: 'No cookies found' });
+      return handleAuthError(req, res, 'No cookies found');
     }
 
     // Parse cookies to get snToken
@@ -29,21 +29,30 @@ exports.checkUser = (req, res, next) => {
     }
 
     if (!snToken) {
-      return res.status(401).json({ message: 'No authentication token found' });
+      return handleAuthError(req, res, 'No authentication token found');
     }
 
     jwt.verify(snToken, process.env.COOKIE_KEY, (err, user) => {
       if (err) {
-        return res.status(403).json({ message: 'Invalid or expired token' });
+        return handleAuthError(req, res, 'Invalid or expired token');
       }
       req.userId = user.userId;
       next();
     });
   } catch (error) {
     console.error('Authentication error:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return handleAuthError(req, res, 'Internal server error');
   }
 };
+
+// In your middleware (backend)
+function handleAuthError(req, res, message) {
+  // Always return JSON for API errors
+  return res.status(401).json({ 
+    message,
+    code: 'TOKEN_EXPIRED_OR_INVALID'
+  });
+}
 
 exports.refreshToken = async (req, res, next) => {
   try {
