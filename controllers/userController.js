@@ -45,7 +45,6 @@ exports.signup = async (req, res) => {
         isBlocked: false,
         isOnline: false,
       };
-      console.log(userObject)
       const createdUser = await db.User.create(userObject);
       return res.status(200).send({
         message: 'User created successfully. You can now login !',
@@ -120,7 +119,6 @@ exports.logout = async (req, res) => {
       if (err) {
         return res.status(400).json({ message: 'Invalid token!' });
       }
-console.log(decoded)
       try {
         // Update online status before clearing cookie
         await db.User.update(
@@ -131,27 +129,13 @@ console.log(decoded)
         res.clearCookie('snToken');
         return res.status(200).json({ message: 'Logged out successfully!' });
       } catch (updateErr) {
-        console.error('Logout update error:', updateErr);
         return res.status(500).json({ message: 'Error updating online status' });
       }
     });
   } catch (err) {
-    console.error('Logout error:', err);
     res.status(500).json({ message: 'An error occurred while logging out!' });
   }
 };
-// exports.logout = (req, res) => {
-//   const cookies = req.headers.cookie;
-//   const prevToken = cookies.split('=')[1];
-//   if (!prevToken) {
-//     res.status(404).json({ message: 'No Token Found !' });
-//   }
-//   jwt.verify(prevToken, process.env.COOKIE_KEY, (err, user) => {
-//     if (err) return res.status(400).json({ message: 'Invalid Token ! ' });
-//     res.clearCookie('snToken');
-//     return res.status(200).json({ message: 'Logged Out Successfully !' });
-//   });
-// };
 
 /*  ****************************************************** */
 //  get all users
@@ -203,55 +187,43 @@ exports.getOneUser = async (req, res) => {
   try {
     const user = await db.User.findOne({
       where: { id },
-      include: [
-        {
-          model: db.User,
-          as: 'followers',
-          attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
-          through: {
-            attributes: [],
-          },
-          include: [{ model: db.Post, include: [{ model: db.User }] }],
-        },
-        {
-          model: db.User,
-          as: 'following',
-          attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
-          through: {
-            attributes: [],
-          },
-          include: [
-            {
-              model: db.Post,
-              include: [
-                {
-                  model: db.User,
-                  attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
-                },
-                {
-                  model: db.Like,
-                  attributes: ['UserId'],
-                },
-                {
-                  model: db.Comment,
-                  attributes: ['message', 'id', 'UserId', 'createdAt'],
-                  order: [['createdAt', 'DESC']],
-                  include: [
-                    {
-                      model: db.User,
-                      attributes: ['firstName', 'familyName', 'id', 'photoUrl'],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
+      attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'bannerUrl', 'role', 'isOnline']
     });
-    return res.status(200).json({ user });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get limited followers and following
+    const [followers, following, followersCount, followingCount] = await Promise.all([
+      user.getFollowers({
+        attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
+        limit: 4,
+        order: [['createdAt', 'DESC']],
+        joinTableAttributes: []
+      }),
+      user.getFollowing({
+        attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
+        limit: 4,
+        order: [['createdAt', 'DESC']],
+        joinTableAttributes: []
+      }),
+      user.countFollowers(),  // Get total followers count
+      user.countFollowing()   // Get total following count
+    ]);
+
+    return res.status(200).json({ 
+      user: {
+        ...user.get({ plain: true }),
+        followers,
+        following,
+        followersCount,  // Total count of followers
+        followingCount   // Total count of following
+      }
+    });
   } catch (err) {
-    return res.status(500).json({ err: 'An error occured!' });
+    console.error('Error in getOneUser:', err);
+    return res.status(500).json({ error: 'An error occurred!' });
   }
 };
 
@@ -509,5 +481,46 @@ exports.searchUser = async (req, res) => {
     return res.status(200).json({ user });
   } catch (err) {
     return res.status(500).json({ message: 'An error occured !' });
+  }
+};
+
+
+exports.getFollowedUsers = async (req, res) => {
+  const userId = req.params.id;
+  const page = parseInt(req.query.page) || 1;
+  const limit = 10;
+  const offset = (page - 1) * limit;
+
+  try {
+    const user = await db.User.findByPk(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Get paginated results AND total count
+    const [results, totalCount] = await Promise.all([
+      user.getFollowing({
+        attributes: ['id', 'firstName', 'familyName', 'photoUrl', 'isOnline'],
+        joinTableAttributes: [],
+        limit,
+        offset,
+        order: [['createdAt', 'DESC']],
+      }),
+      user.countFollowing() // Get total count of followed users
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return res.status(200).json({
+      following: results,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalCount,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      }
+    });
+  } catch (err) {
+    console.error('Error in getFollowedUsers:', err);
+    return res.status(500).json({ error: 'An error occurred' });
   }
 };

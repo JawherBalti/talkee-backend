@@ -17,6 +17,8 @@ router.post('/logout', checkUser, userControl.logout);
 // user CRUD
 router.get('/', checkUser, userControl.getAllUsers);
 router.get('/:id', checkUser, userControl.getOneUser);
+router.get('/:id/following', checkUser, userControl.getFollowedUsers);
+
 router.put('/:id', checkUser, userControl.updateUser);
 router.put('/banner/:id', checkUser, userControl.updateBanner);
 router.put('/pwd/:id', checkUser, userControl.updatePwd);
