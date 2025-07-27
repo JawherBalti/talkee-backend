@@ -19,18 +19,32 @@ exports.createPost = async (req, res) => {
   let postObject = req.body.attachmentUrl
     ? {
         content: req.body.content,
-        attachmentUrl: req.body.attachmentUrl, // This is now the Cloudinary URL
+        attachmentUrl: req.body.attachmentUrl,
       }
     : {
         content: req.body.content,
       };
 
   try {
-    const post = await db.Post.create({ ...postObject, UserId: req.userId });
+    const post = await db.Post.create({ 
+      ...postObject, 
+      UserId: req.userId 
+    });
+    
+    // Fetch the complete post with user data
+    const fullPost = await db.Post.findByPk(post.id, {
+      include: [{
+        model: db.User,
+        attributes: ['id', 'firstName', 'familyName', 'photoUrl']
+      }]
+    });
+
     return res.status(201).json({
       message: 'Post created successfully!',
+      post: fullPost  // Return the complete post object
     });
   } catch (err) {
+    console.error('Error creating post:', err);
     return res.status(400).json({ message: 'Could not create post!' });
   }
 };
@@ -41,7 +55,7 @@ exports.createPost = async (req, res) => {
 exports.getAllPosts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1; // Default to page 1
-    const limit = 1; // 1 post per request
+    const limit = 10; // 1 post per request
     const offset = (page - 1) * limit;
 
     // Get paginated posts
