@@ -26,9 +26,13 @@ exports.getOneConversation = async (req, res, next) => {
   const userId = req.userId;
   const otherUserId = req.params.id;
   const convId = userId.toString() + otherUserId.toString();
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 5;
+  const offset = (page - 1) * limit;
+
   try {
-    const conversations = await db.Conversation.findAll({
-      order: [['createdAt', 'ASC']],
+    const { count, rows } = await db.Conversation.findAndCountAll({
+      order: [['createdAt', 'DESC']], // Get newest messages first
       where: {
         [Op.or]: [
           sequelize.where(
@@ -37,9 +41,7 @@ exports.getOneConversation = async (req, res, next) => {
               sequelize.col('firstUserId'),
               sequelize.col('secondUserId')
             ),
-            {
-              [Op.eq]: convId,
-            }
+            { [Op.eq]: convId }
           ),
           sequelize.where(
             sequelize.fn(
@@ -47,12 +49,8 @@ exports.getOneConversation = async (req, res, next) => {
               sequelize.col('secondUserId'),
               sequelize.col('firstUserId')
             ),
-            {
-              [Op.eq]: convId,
-            }
+            { [Op.eq]: convId }
           ),
-          // { email: { $like: '%' + req.body.query + '%' } },
-          // { companyName: { $like: '%' + req.body.query + '%' } }
         ],
       },
       include: [
@@ -67,9 +65,16 @@ exports.getOneConversation = async (req, res, next) => {
           attributes: ['firstName', 'familyName', 'photoUrl'],
         },
       ],
+      limit,
+      offset,
     });
-    console.log(conversations);
-    return res.status(200).json(conversations);
+
+    return res.status(200).json({
+      messages: rows.reverse(), // Reverse to get oldest first in the batch
+      total: count,
+      page,
+      totalPages: Math.ceil(count / limit),
+    });
   } catch (err) {
     next(err);
   }
@@ -219,7 +224,6 @@ exports.getUnreadCounts = async (req, res, next) => {
           WHEN firstUserId = ${userId} THEN secondUserId 
           ELSE firstUserId 
         END`), 'otherUserId'],
-        [sequelize.fn('COUNT', sequelize.col('id')), 'totalCount'],
         [sequelize.fn('SUM', 
           sequelize.literal(`CASE WHEN (
             (firstUserId = ${userId} AND unreadMessageFirstUser = 1) OR 
@@ -239,7 +243,10 @@ exports.getUnreadCounts = async (req, res, next) => {
       END`)],
       raw: true
     });
+
+
     
+    // Return just the array without pagination wrapper
     return res.status(200).json(counts);
   } catch (err) {
     next(err);
